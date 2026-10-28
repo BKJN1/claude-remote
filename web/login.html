@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<!-- The server sends Referrer-Policy: no-referrer, under which browsers send
+     "Origin: null" with form posts. same-origin still leaks nothing cross-site
+     but lets the login POST carry its real Origin for the CSRF check. -->
+<meta name="referrer" content="same-origin">
+<title>claude-remote — вход</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="login">
+<form method="post" action="/login" autocomplete="off">
+  <h1>claude-remote</h1>
+  <p class="err"><!--ERROR--></p>
+  <input type="password" name="token" placeholder="Токен" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" required autofocus>
+  <button type="submit">Войти</button>
+</form>
+</body>
+</html>

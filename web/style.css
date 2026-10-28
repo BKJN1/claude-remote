@@ -1,0 +1,117 @@
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --border: #30363d;
+  --fg: #e6edf3;
+  --muted: #8b949e;
+  --accent: #2f81f7;
+  --ok: #3fb950;
+  --bad: #f85149;
+  --warn: #d29922;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  overscroll-behavior: none;
+}
+
+button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+button:active { background: var(--border); }
+button.on { background: var(--accent); border-color: var(--accent); }
+
+.spacer { flex: 1; }
+
+/* The height is set from visualViewport in app.js so the layout shrinks
+   when the on-screen keyboard opens. */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: var(--vvh, 100dvh);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+#top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+#top button { padding: 6px 10px; }
+#status { color: var(--muted); font-size: 13px; }
+
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); flex: none; }
+.dot.on { background: var(--ok); }
+.dot.wait { background: var(--warn); }
+.dot.off { background: var(--bad); }
+
+#term { flex: 1; min-height: 0; padding: 4px; overflow: hidden; }
+#term .xterm { height: 100%; }
+
+#keys {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  overflow-x: auto;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+#keys button { flex: none; min-width: 44px; }
+
+/* Screenshot overlay */
+#shot {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.92);
+}
+#shot[hidden] { display: none; }
+#shot-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  background: var(--panel);
+}
+#shot-bar label { color: var(--muted); font-size: 13px; }
+#shot-view { flex: 1; overflow: auto; text-align: center; }
+#shot-img { max-width: 100%; height: auto; }
+#shot-msg { color: var(--muted); }
+
+/* Login page */
+body.login { display: flex; align-items: center; justify-content: center; }
+body.login form {
+  width: min(92vw, 360px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+body.login h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
+body.login input {
+  font: inherit;
+  padding: 12px;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+body.login button { padding: 12px; background: var(--accent); border-color: var(--accent); }
+.err { color: var(--bad); margin: 0; min-height: 1.4em; }

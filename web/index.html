@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-visual">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>claude-remote</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <span id="dot" class="dot off"></span>
+    <span id="status">подключение…</span>
+    <span class="spacer"></span>
+    <button id="btn-screen" type="button">Экран</button>
+    <button id="btn-restart" type="button">Перезапустить</button>
+  </header>
+  <main id="term"></main>
+  <nav id="keys" aria-label="Клавиши">
+    <button type="button" data-seq="scroll-up" aria-label="Прокрутка вверх">⇞</button>
+    <button type="button" data-seq="scroll-down" aria-label="Прокрутка вниз">⇟</button>
+    <button type="button" data-seq="scroll-end" aria-label="В конец">⤓</button>
+    <button type="button" data-seq="esc">Esc</button>
+    <button type="button" data-seq="tab">Tab</button>
+    <button type="button" id="key-ctrl" data-seq="ctrl">Ctrl</button>
+    <button type="button" data-seq="c-c">^C</button>
+    <button type="button" data-seq="c-d">^D</button>
+    <button type="button" data-seq="up">↑</button>
+    <button type="button" data-seq="down">↓</button>
+    <button type="button" data-seq="left">←</button>
+    <button type="button" data-seq="right">→</button>
+    <button type="button" data-seq="enter">Enter</button>
+    <button type="button" data-seq="|">|</button>
+    <button type="button" data-seq="/">/</button>
+    <button type="button" data-seq="~">~</button>
+  </nav>
+</div>
+
+<div id="shot" hidden>
+  <div id="shot-bar">
+    <button id="shot-refresh" type="button">Обновить</button>
+    <label><input id="shot-auto" type="checkbox"> авто (5 с)</label>
+    <span class="spacer"></span>
+    <button id="shot-close" type="button">Закрыть</button>
+  </div>
+  <div id="shot-view"><img id="shot-img" alt="Скриншот экрана"><p id="shot-msg"></p></div>
+</div>
+
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
