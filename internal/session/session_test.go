@@ -223,3 +223,43 @@ func TestCloseKillsProcessAndDisconnects(t *testing.T) {
 		t.Fatal("subscribe after close succeeded")
 	}
 }
+
+func TestActivityBroadcastAndInfo(t *testing.T) {
+	s, f := newSession(t, 1024)
+	s.Ensure()
+	sub, snap, _ := s.Subscribe()
+	if snap.Activity != "" {
+		t.Fatalf("activity should start unknown, got %q", snap.Activity)
+	}
+	s.SetActivity("working")
+	ev := next(t, sub)
+	if ev.Pulse != "working" || ev.PulseSince.IsZero() {
+		t.Fatalf("event %+v", ev)
+	}
+	// Setting the same state again is silent.
+	s.SetActivity("working")
+	select {
+	case ev := <-sub.C:
+		t.Fatalf("duplicate pulse event: %+v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if info := s.Info(); info.Activity != "working" {
+		t.Fatalf("info %+v", info)
+	}
+	// A new subscriber learns the current state immediately.
+	if _, snap, _ := s.Subscribe(); snap.Activity != "working" {
+		t.Fatalf("snapshot %+v", snap)
+	}
+	// Output updates the last-output time used when hooks are not available.
+	before := s.Info().LastOutput
+	f.Last().Emit([]byte("x"))
+	next(t, sub)
+	if !s.Info().LastOutput.After(before) {
+		t.Fatal("last output not recorded")
+	}
+	// A restart clears the hook state.
+	s.Restart()
+	if s.Info().Activity != "" {
+		t.Fatal("activity survived a restart")
+	}
+}

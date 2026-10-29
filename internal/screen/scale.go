@@ -59,3 +59,10 @@ func downscale(src *image.RGBA, nw, nh int) *image.RGBA {
 	}
 	return dst
 }
+
+// Display describes one monitor for the UI.
+type Display struct {
+	Index  int `json:"index"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}

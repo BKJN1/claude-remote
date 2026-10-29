@@ -78,19 +78,25 @@ func Rotate(dir string) (*Config, error) {
 }
 
 func write(dir string, cfg *Config) error {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return WritePrivateFile(dir, fileName, data)
+}
+
+// WritePrivateFile atomically writes dir/name readable only by the current
+// user. Used for every file that holds a secret (token, push keys).
+func WritePrivateFile(dir, name string, data []byte) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	if err := restrict(dir); err != nil {
 		return err
 	}
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		return err
-	}
-	// Write to a temp file whose permissions are restricted BEFORE the token
-	// is written, then rename: the secret is never readable by others.
-	tmp, err := os.CreateTemp(dir, "config-*.tmp")
+	// Write to a temp file whose permissions are restricted BEFORE the secret
+	// is written, then rename: the content is never readable by others.
+	tmp, err := os.CreateTemp(dir, name+"-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -107,9 +113,44 @@ func write(dir string, cfg *Config) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	path := filepath.Join(dir, fileName)
+	path := filepath.Join(dir, name)
 	if err := os.Rename(tmpName, path); err != nil {
 		return err
 	}
 	return verifyPrivate(path)
+}
+
+// ReadPrivateFile reads dir/name, refusing files that other users can access.
+// A missing file yields an error satisfying errors.Is(err, fs.ErrNotExist).
+func ReadPrivateFile(dir, name string) ([]byte, error) {
+	path := filepath.Join(dir, name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyPrivate(path); err != nil {
+		return nil, fmt.Errorf("%s is not private: %w", path, err)
+	}
+	return data, nil
+}
+
+// OpenPrivateAppend opens dir/name for appending, creating it readable only
+// by the current user (used for the optional session recording).
+func OpenPrivateAppend(dir, name string) (*os.File, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	if err := restrict(dir); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(dir, name)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := restrict(path); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
 }

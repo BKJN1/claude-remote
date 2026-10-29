@@ -130,3 +130,17 @@ func TestStaleCookieDoesNotCountTowardLimit(t *testing.T) {
 		t.Fatalf("owner locked out by stale cookie: %v", res)
 	}
 }
+
+func TestRevokeSessions(t *testing.T) {
+	a := New(tok)
+	id1, _ := a.NewSession()
+	id2, _ := a.NewSession()
+	a.RevokeSession(id1)
+	if a.validSession(id1) || !a.validSession(id2) {
+		t.Fatal("single revoke wrong")
+	}
+	a.RevokeAll()
+	if a.validSession(id2) {
+		t.Fatal("revoke all left a session")
+	}
+}

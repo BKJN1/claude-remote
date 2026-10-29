@@ -4,6 +4,7 @@ package session
 
 import (
 	"errors"
+	"io"
 	"sync"
 	"time"
 )
@@ -32,12 +33,41 @@ const (
 	Exited
 )
 
+// Why a process could not be started; shown to the user in plain words.
+const (
+	KindCommandNotFound = "command_not_found"
+	KindWorkdirMissing  = "workdir_missing"
+	KindStartFailed     = "start_failed"
+)
+
+// StartError classifies a launch failure.
+type StartError struct {
+	Kind string
+	Err  error
+}
+
+func (e *StartError) Error() string { return e.Kind + ": " + e.Err.Error() }
+func (e *StartError) Unwrap() error { return e.Err }
+
+func errKind(err error) string {
+	var se *StartError
+	if errors.As(err, &se) {
+		return se.Kind
+	}
+	return KindStartFailed
+}
+
 // Event is delivered to subscribers.
 type Event struct {
 	Data     []byte // terminal output
 	Reset    bool   // session was restarted; clear the terminal
 	Exited   bool   // process ended
 	ExitCode int
+	ErrKind  string // set with Exited when the process never started
+
+	// Pulse is set when what the session is doing changed (see SetActivity).
+	Pulse      string
+	PulseSince time.Time
 }
 
 const (
@@ -59,6 +89,11 @@ type Session struct {
 	gen      int // incremented per process start; stale goroutines compare it
 	state    State
 	exitCode int
+	errKind  string
+	activity string      // "working", "waiting" or "idle" as reported by hooks; "" if unknown
+	actSince time.Time   // when activity last changed
+	lastOut  time.Time   // last time the process printed anything
+	rec      chan []byte // optional full-output recorder queue (--record)
 	cols     int
 	rows     int
 	closed   bool
@@ -98,6 +133,61 @@ type Snapshot struct {
 	Replay   []byte
 	State    State
 	ExitCode int
+	ErrKind  string
+
+	Activity      string
+	ActivitySince time.Time
+}
+
+// Info is a point-in-time summary for listings.
+type Info struct {
+	State    State
+	ExitCode int
+	ErrKind  string
+
+	Activity      string // see SetActivity
+	ActivitySince time.Time
+	LastOutput    time.Time
+}
+
+func (s *Session) Info() Info {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return Info{State: s.state, ExitCode: s.exitCode, ErrKind: s.errKind, Activity: s.activity, ActivitySince: s.actSince, LastOutput: s.lastOut}
+}
+
+// SetActivity records what Claude Code reported through its hooks
+// ("working", "waiting" for the user, "idle") and tells subscribers when it
+// changes. An empty state means "unknown".
+func (s *Session) SetActivity(state string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.activity == state {
+		return
+	}
+	s.activity, s.actSince = state, time.Now()
+	if state != "" {
+		s.broadcast(Event{Pulse: state, PulseSince: s.actSince})
+	}
+}
+
+// SetRecorder makes the session copy all process output to w. Writes happen
+// on their own goroutine through a bounded queue, so a slow or full disk can
+// never stall the terminal (chunks are dropped when the queue is full). If w
+// is an io.Closer it is closed with the session.
+func (s *Session) SetRecorder(w io.Writer) {
+	ch := make(chan []byte, 1024)
+	go func() {
+		for chunk := range ch {
+			w.Write(chunk)
+		}
+		if c, ok := w.(io.Closer); ok {
+			c.Close()
+		}
+	}()
+	s.mu.Lock()
+	s.rec = ch
+	s.mu.Unlock()
 }
 
 // Subscribe registers a subscriber and returns the replay atomically, so no
@@ -110,7 +200,7 @@ func (s *Session) Subscribe() (*Subscriber, Snapshot, error) {
 	}
 	b := &Subscriber{C: make(chan Event, subBuffer), done: make(chan struct{}), s: s}
 	s.subs[b] = struct{}{}
-	return b, Snapshot{Replay: s.ring.Replay(), State: s.state, ExitCode: s.exitCode}, nil
+	return b, Snapshot{Replay: s.ring.Replay(), State: s.state, ExitCode: s.exitCode, ErrKind: s.errKind, Activity: s.activity, ActivitySince: s.actSince}, nil
 }
 
 // broadcast must be called with s.mu held.
@@ -162,13 +252,14 @@ func (s *Session) Restart() error {
 func (s *Session) startLocked() error {
 	p, err := s.start(s.cols, s.rows)
 	if err != nil {
-		s.state, s.exitCode = Exited, -1
-		s.broadcast(Event{Exited: true, ExitCode: -1})
+		s.state, s.exitCode, s.errKind = Exited, -1, errKind(err)
+		s.broadcast(Event{Exited: true, ExitCode: -1, ErrKind: s.errKind})
 		return err
 	}
 	s.gen++
 	s.pty = p
-	s.state, s.exitCode = Running, 0
+	s.state, s.exitCode, s.errKind = Running, 0, ""
+	s.activity, s.actSince = "", time.Now()
 	go s.run(p, s.gen)
 	return nil
 }
@@ -187,7 +278,14 @@ func (s *Session) run(p PTY, gen int) {
 					s.mu.Unlock()
 					return
 				}
+				s.lastOut = time.Now()
 				s.ring.Write(chunk)
+				if s.rec != nil {
+					select {
+					case s.rec <- chunk:
+					default: // recorder is behind; drop rather than block the terminal
+					}
+				}
 				s.broadcast(Event{Data: chunk})
 				s.mu.Unlock()
 			}
@@ -253,6 +351,8 @@ func (s *Session) Close() {
 		return
 	}
 	s.closed = true
+	rec := s.rec
+	s.rec = nil
 	p := s.pty
 	s.pty = nil
 	s.gen++
@@ -263,5 +363,8 @@ func (s *Session) Close() {
 	s.mu.Unlock()
 	if p != nil {
 		p.Close()
+	}
+	if rec != nil {
+		close(rec) // the writer goroutine drains the queue, then closes the file
 	}
 }

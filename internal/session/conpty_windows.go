@@ -5,6 +5,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -16,28 +17,45 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// NewStarter returns a StartFunc that launches cmdline in workdir inside a
-// ConPTY. Both come from launch flags only, never from clients.
-func NewStarter(cmdline, workdir string) StartFunc {
+// Spec describes the process to launch. Every field comes from launch flags
+// or server-side logic, never from a client.
+type Spec struct {
+	Cmd       string   // command line, e.g. `claude`
+	ExtraArgs []string // appended to Cmd's arguments
+	Workdir   string
+	Env       []string // full environment; nil inherits the server's
+}
+
+// NewStarter returns a StartFunc that launches spec inside a ConPTY.
+func NewStarter(spec Spec) StartFunc {
 	return func(cols, rows int) (PTY, error) {
-		full, err := resolveCommand(cmdline)
+		if spec.Workdir != "" {
+			if fi, err := os.Stat(spec.Workdir); err != nil || !fi.IsDir() {
+				return nil, &StartError{Kind: KindWorkdirMissing, Err: fmt.Errorf("working directory %q is not available", spec.Workdir)}
+			}
+		}
+		full, err := resolveCommand(spec.Cmd, spec.ExtraArgs)
 		if err != nil {
 			return nil, err
 		}
-		cp, err := conpty.Start(full, conpty.ConPtyDimensions(cols, rows), conpty.ConPtyWorkDir(workdir))
+		opts := []conpty.ConPtyOption{conpty.ConPtyDimensions(cols, rows), conpty.ConPtyWorkDir(spec.Workdir)}
+		if spec.Env != nil {
+			opts = append(opts, conpty.ConPtyEnv(spec.Env))
+		}
+		cp, err := conpty.Start(full, opts...)
 		if err != nil {
-			return nil, err
+			return nil, &StartError{Kind: KindStartFailed, Err: err}
 		}
 		job, err := newKillOnCloseJob()
 		if err != nil {
 			cp.Close()
-			return nil, err
+			return nil, &StartError{Kind: KindStartFailed, Err: err}
 		}
 		// Fail closed: a process we cannot put in the job could leave orphans.
 		if err := assignToJob(job, uint32(cp.Pid())); err != nil {
 			windows.CloseHandle(job)
 			cp.Close()
-			return nil, fmt.Errorf("assign process to job object: %w", err)
+			return nil, &StartError{Kind: KindStartFailed, Err: fmt.Errorf("assign process to job object: %w", err)}
 		}
 		p := &conptyPTY{cp: cp, job: job, exited: make(chan struct{})}
 		go func() {
@@ -115,25 +133,33 @@ func assignToJob(job windows.Handle, pid uint32) error {
 	return windows.AssignProcessToJobObject(job, h)
 }
 
-// resolveCommand turns the --cmd value into a CreateProcess command line.
-// CreateProcess only finds .exe files on PATH, but Claude Code installed via
-// npm is a claude.cmd shim, so resolve with PATHEXT and wrap batch files in
-// cmd.exe.
-func resolveCommand(cmdline string) (string, error) {
+// resolveCommand turns the command and extra args into a CreateProcess
+// command line. CreateProcess only finds .exe files on PATH, but Claude Code
+// installed via npm is a claude.cmd shim, so resolve with PATHEXT and wrap
+// batch files in cmd.exe.
+func resolveCommand(cmdline string, extra []string) (string, error) {
 	args, err := windows.DecomposeCommandLine(cmdline)
 	if err != nil || len(args) == 0 {
-		return "", fmt.Errorf("invalid --cmd %q", cmdline)
+		return "", &StartError{Kind: KindStartFailed, Err: fmt.Errorf("invalid command %q", cmdline)}
 	}
 	path, err := exec.LookPath(args[0])
 	if err != nil {
-		return "", fmt.Errorf("command %q not found: %w", args[0], err)
+		return "", &StartError{Kind: KindCommandNotFound, Err: fmt.Errorf("command %q not found: %w", args[0], err)}
 	}
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
 	args[0] = path
+	args = append(args, extra...)
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".cmd", ".bat":
+		// cmd.exe re-parses the line, so & | < > ^ % in any part (paths,
+		// arguments) would be interpreted as shell syntax.
+		for _, a := range args {
+			if strings.ContainsAny(a, "&|<>^%") {
+				return "", &StartError{Kind: KindStartFailed, Err: fmt.Errorf("argument %q contains characters cmd.exe would interpret; use a path without & | < > ^ %%", a)}
+			}
+		}
 		return `cmd.exe /d /s /c "` + windows.ComposeCommandLine(args) + `"`, nil
 	}
 	return windows.ComposeCommandLine(args), nil

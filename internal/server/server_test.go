@@ -42,10 +42,26 @@ func (l *lockedBuf) String() string {
 }
 
 type env struct {
-	ts   *httptest.Server
-	srv  *Server
-	pty  *fakepty.Factory
-	logs *lockedBuf
+	ts      *httptest.Server
+	srv     *Server
+	pty     *fakepty.Factory
+	logs    *lockedBuf
+	mgr     *session.Manager
+	workdir string
+	sessID  string
+}
+
+// sid returns a session id, creating one on first use.
+func (e *env) sid(t *testing.T) string {
+	t.Helper()
+	if e.sessID == "" {
+		entry, err := e.mgr.Create("proj", e.workdir, "test session", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.sessID = entry.ID
+	}
+	return e.sessID
 }
 
 func (e *env) host() string { return strings.TrimPrefix(e.ts.URL, "http://") }
@@ -53,11 +69,14 @@ func (e *env) host() string { return strings.TrimPrefix(e.ts.URL, "http://") }
 func newEnv(t *testing.T, mod func(*Options)) *env {
 	t.Helper()
 	f := &fakepty.Factory{}
-	sess := session.New(f.StartFunc(), 1<<16, 80, 24)
+	mgr := session.NewManager(func(session.Meta) session.StartFunc { return f.StartFunc() }, 1<<16, 5)
+	workdir := t.TempDir()
 	logs := &lockedBuf{}
 	o := Options{
-		Auth:    auth.New(testToken),
-		Session: sess,
+		Auth:        auth.New(testToken),
+		Sessions:    mgr,
+		Projects:    []Project{{Name: "proj", Path: workdir}},
+		HistoryRoot: t.TempDir(),
 		Web: fstest.MapFS{
 			"index.html": {Data: []byte("<html>app</html>")},
 			"login.html": {Data: []byte("<html><!--ERROR--></html>")},
@@ -79,16 +98,16 @@ func newEnv(t *testing.T, mod func(*Options)) *env {
 	t.Cleanup(func() {
 		ts.Close()
 		srv.cancel()
-		sess.Close()
+		mgr.CloseAll()
 	})
-	return &env{ts: ts, srv: srv, pty: f, logs: logs}
+	return &env{ts: ts, srv: srv, pty: f, logs: logs, mgr: mgr, workdir: workdir}
 }
 
 func (e *env) dial(t *testing.T, hdr http.Header) (*websocket.Conn, *http.Response, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	return websocket.Dial(ctx, "ws"+strings.TrimPrefix(e.ts.URL, "http")+"/ws", &websocket.DialOptions{HTTPHeader: hdr})
+	return websocket.Dial(ctx, "ws"+strings.TrimPrefix(e.ts.URL, "http")+"/ws?session="+e.sid(t), &websocket.DialOptions{HTTPHeader: hdr})
 }
 
 func (e *env) goodHeaders() http.Header {
@@ -109,8 +128,8 @@ func TestWSWithoutAuthRejected(t *testing.T) {
 	if resp == nil || resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("response %v", resp)
 	}
-	if e.pty.Count() != 0 {
-		t.Fatal("unauthenticated client started the process")
+	if strings.Contains(e.logs.String(), "ws connected") {
+		t.Fatal("unauthenticated client was connected")
 	}
 }
 

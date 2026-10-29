@@ -19,7 +19,7 @@ import (
 const CookieName = "cr_session"
 
 // SessionTTL is how long a login stays valid.
-const SessionTTL = 30 * 24 * time.Hour
+const SessionTTL = 14 * 24 * time.Hour
 
 // Result of an authentication attempt.
 type Result int
@@ -70,6 +70,20 @@ func (a *Auth) NewSession() (string, error) {
 	}
 	a.sessions[sha256.Sum256([]byte(id))] = now.Add(SessionTTL)
 	return id, nil
+}
+
+// RevokeSession ends one login (logout on this device).
+func (a *Auth) RevokeSession(id string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.sessions, sha256.Sum256([]byte(id)))
+}
+
+// RevokeAll ends every login (logout everywhere).
+func (a *Auth) RevokeAll() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sessions = make(map[[32]byte]time.Time)
 }
 
 func (a *Auth) validSession(id string) bool {

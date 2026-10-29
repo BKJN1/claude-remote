@@ -15,20 +15,56 @@ import (
 	"sync"
 	"time"
 
+	"claude-remote/internal/agents"
 	"claude-remote/internal/auth"
+	"claude-remote/internal/lock"
+	"claude-remote/internal/machine"
+	"claude-remote/internal/push"
+	"claude-remote/internal/screen"
 	"claude-remote/internal/session"
 )
 
 // ScreenshotFunc captures a display as PNG. scale<=0 means "pick a default".
 type ScreenshotFunc func(ctx context.Context, display int, scale float64) ([]byte, error)
 
+// Project is a working directory the operator allows, chosen at launch.
+// Clients only ever pick one by name.
+type Project struct {
+	Name string
+	Path string
+}
+
 type Options struct {
-	Auth    *auth.Auth
-	Session *session.Session
-	Web     fs.FS // embedded static files (root contains index.html)
-	Log     *slog.Logger
+	Auth     *auth.Auth
+	Sessions *session.Manager
+	Projects []Project
+	// HistoryRoot is Claude Code's ~/.claude/projects (for the resume list).
+	HistoryRoot string
+	// CodexRoot is Codex's home (~/.codex), for its resume list.
+	CodexRoot string
+	// ToolAvailable reports whether a tool's program is installed. nil means
+	// only "claude" is offered.
+	ToolAvailable func(tool string) bool
+	Web           fs.FS // embedded static files (root contains index.html)
+	Log           *slog.Logger
+	// Push may be nil (notifications disabled).
+	Push *push.Service
+	// NotifySecret authenticates the local hook helper on the internal listener.
+	NotifySecret string
 	// Screenshot may be nil, in which case /screenshot returns 501.
 	Screenshot ScreenshotFunc
+	Displays   func() []screen.Display
+	// Lock is the optional PIN lock (nil: none). Only requests authenticated by
+	// the login cookie are subject to it; Bearer-token clients are not.
+	Lock *lock.Lock
+	// Machine reads the laptop's state and performs power actions. nil: feature off.
+	Machine machine.Machine
+	// NoPower removes sleep, hibernate, shutdown and restart (monitoring,
+	// screen lock and keep-awake stay).
+	NoPower bool
+	// Agents lists and closes Claude Code sessions running on this laptop.
+	// May be nil (feature off).
+	Agents Agents
 	// AllowedHosts are extra Host names (e.g. the MagicDNS name) accepted in
 	// addition to IP literals; this blocks DNS-rebinding attacks.
 	AllowedHosts []string
@@ -43,10 +79,21 @@ type Server struct {
 	allowed map[string]bool
 	shotSem chan struct{}
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup // active WebSocket handlers
-	http   *http.Server
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup // active WebSocket handlers
+	http     *http.Server
+	internal *http.Server
+
+	pinMu        sync.Mutex // serialises PIN attempts
+	power        powerState
+	takeMu       sync.Mutex // serialises /api/laptop/take
+	laptopMu     sync.Mutex // guards the 3-second cache of the laptop list
+	laptopAt     time.Time
+	laptopCached []agents.Agent
+
+	notifyMu   sync.Mutex
+	notifyLast map[string]time.Time
 }
 
 func New(o Options) *Server {
@@ -59,7 +106,7 @@ func New(o Options) *Server {
 	if o.Log == nil {
 		o.Log = slog.Default()
 	}
-	s := &Server{o: o, allowed: map[string]bool{}, shotSem: make(chan struct{}, 1)}
+	s := &Server{o: o, allowed: map[string]bool{}, shotSem: make(chan struct{}, 1), notifyLast: map[string]time.Time{}}
 	for _, h := range o.AllowedHosts {
 		s.allowed[strings.ToLower(h)] = true
 	}
@@ -80,8 +127,33 @@ var publicAssets = map[string]bool{
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/login", s.handleLogin)
-	mux.HandleFunc("/ws", s.requireAuth(s.handleWS))
-	mux.HandleFunc("/screenshot", s.requireAuth(s.handleScreenshot))
+	mux.HandleFunc("/ws", s.requireAuth(s.gate(s.handleWS)))
+	mux.HandleFunc("/screenshot", s.requireAuth(s.gate(s.handleScreenshot)))
+	mux.HandleFunc("GET /api/lock/status", s.apiOpen(s.handleLockStatus))
+	mux.HandleFunc("POST /api/lock/unlock", s.apiOpen(s.handleLockUnlock))
+	mux.HandleFunc("POST /api/lock/lock", s.apiOpen(s.handleLockNow))
+	mux.HandleFunc("POST /api/logout", s.api(s.handleLogout))
+	mux.HandleFunc("GET /api/history/all", s.api(s.handleHistoryAll))
+	mux.HandleFunc("POST /api/history/open", s.api(s.handleHistoryOpen))
+	mux.HandleFunc("GET /api/laptop", s.api(s.handleLaptopList))
+	mux.HandleFunc("POST /api/laptop/take", s.api(s.handleLaptopTake))
+	mux.HandleFunc("GET /api/machine", s.api(s.handleMachine))
+	mux.HandleFunc("POST /api/machine/lock", s.api(s.handleMachineLock))
+	mux.HandleFunc("POST /api/machine/keepawake", s.api(s.handleKeepAwake))
+	mux.HandleFunc("POST /api/power/prepare", s.api(s.handlePowerPrepare))
+	mux.HandleFunc("POST /api/power/execute", s.api(s.handlePowerExecute))
+	mux.HandleFunc("POST /api/power/cancel", s.api(s.handlePowerCancel))
+	mux.HandleFunc("GET /api/tools", s.api(s.handleTools))
+	mux.HandleFunc("GET /api/projects", s.api(s.handleProjects))
+	mux.HandleFunc("GET /api/history", s.api(s.handleHistory))
+	mux.HandleFunc("GET /api/sessions", s.api(s.handleSessionList))
+	mux.HandleFunc("POST /api/sessions", s.api(s.handleSessionCreate))
+	mux.HandleFunc("DELETE /api/sessions/{id}", s.api(s.handleSessionDelete))
+	mux.HandleFunc("POST /api/upload", s.api(s.handleUpload))
+	mux.HandleFunc("GET /api/displays", s.api(s.handleDisplays))
+	mux.HandleFunc("GET /api/push/key", s.api(s.handlePushKey))
+	mux.HandleFunc("POST /api/push/subscribe", s.api(s.handlePushSubscribe))
+	mux.HandleFunc("POST /api/push/unsubscribe", s.api(s.handlePushUnsubscribe))
 	static := http.FileServerFS(s.o.Web)
 	mux.Handle("/", s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		static.ServeHTTP(w, r)
@@ -119,6 +191,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	case <-done:
 	case <-ctx.Done():
 	}
+	if s.internal != nil {
+		s.internal.Shutdown(ctx)
+	}
 	if s.http == nil {
 		return nil
 	}
@@ -138,8 +213,9 @@ func (s *Server) secure(next http.Handler) http.Handler {
 		// explicitly since some browsers do not let 'self' cover ws:.
 		h.Set("Content-Security-Policy", "default-src 'self'; "+
 			"connect-src 'self' ws://"+r.Host+" wss://"+r.Host+"; "+
-			"style-src 'self' 'unsafe-inline'; img-src 'self' data:; "+
+			"style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "+
 			"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+		h.Set("Permissions-Policy", "microphone=(self), camera=(), geolocation=()")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("X-Frame-Options", "DENY")

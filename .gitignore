@@ -5,3 +5,7 @@ config.json
 *.out
 .idea/
 *.exe~
+*.key
+*.crt
+.claude-remote-uploads/
+*.log

@@ -171,3 +171,13 @@ func (f *Factory) Last() *PTY {
 	}
 	return f.ptys[len(f.ptys)-1]
 }
+
+// Nth returns the i-th started PTY (0-based), or nil.
+func (f *Factory) Nth(i int) *PTY {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if i < 0 || i >= len(f.ptys) {
+		return nil
+	}
+	return f.ptys[i]
+}

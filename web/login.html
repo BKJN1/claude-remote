@@ -3,22 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#100f0d">
+<meta name="color-scheme" content="dark">
 <!-- The server sends Referrer-Policy: no-referrer, under which browsers send
      "Origin: null" with form posts. same-origin still leaks nothing cross-site
      but lets the login POST carry its real Origin for the CSRF check. -->
 <meta name="referrer" content="same-origin">
-<title>claude-remote — вход</title>
+<title>agent-remote — вход</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon-192.png">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body class="login">
-<form method="post" action="/login" autocomplete="off">
-  <h1>claude-remote</h1>
-  <p class="err"><!--ERROR--></p>
-  <input type="password" name="token" placeholder="Токен" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" required autofocus>
-  <button type="submit">Войти</button>
+<form method="post" action="/login" autocomplete="off" class="card">
+  <div class="wordmark">
+    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 7 5 5-5 5M12 18h8"/></svg>
+    <span>agent-remote</span>
+  </div>
+  <p class="sub">Доступ к терминалу вашего ноутбука</p>
+  <p class="err" role="alert"><!--ERROR--></p>
+  <input type="password" name="token" placeholder="Токен доступа" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" required autofocus>
+  <button type="submit" class="primary">Войти</button>
 </form>
 </body>
 </html>

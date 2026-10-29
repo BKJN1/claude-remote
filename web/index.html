@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-visual">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#100f0d">
+<meta name="color-scheme" content="dark">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>claude-remote</title>
+<title>agent-remote</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
@@ -14,44 +15,156 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+
+<!-- Icon sprite: square-cap strokes drawn in currentColor -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-logo" viewBox="0 0 24 24"><path d="m4 7 5 5-5 5M12 18h8"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><path d="M9 4h6v8a3 3 0 0 1-6 0z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7M9 8h3"/></symbol>
+    <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+    <symbol id="i-pgup" viewBox="0 0 24 24"><path d="m17 11-5-5-5 5M17 18l-5-5-5 5"/></symbol>
+    <symbol id="i-pgdn" viewBox="0 0 24 24"><path d="m7 6 5 5 5-5M7 13l5 5 5-5"/></symbol>
+    <symbol id="i-bottom" viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><path d="M3 4h18v12H3zM8 20h8M12 16v4"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><path d="M12 5v.01M12 12v.01M12 19v.01" stroke-width="3"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-enter" viewBox="0 0 24 24"><path d="M20 5v8H5M9 9l-4 4 4 4"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><path d="M4 11a7 7 0 1 0 14 0 7 7 0 1 0-14 0M20 20l-4-4"/></symbol>
+    <symbol id="i-battery" viewBox="0 0 24 24"><path d="M2 7h17v10H2zM22 11v2"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v9M6.4 6.6a8 8 0 1 0 11.2 0"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><path d="M5 11h14v9H5zM8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><path d="M9 9h11v11H9zM5 15V4h11"/></symbol>
+  </defs>
+</svg>
+
 <div id="app">
   <header id="top">
-    <span id="dot" class="dot off"></span>
-    <span id="status">подключение…</span>
-    <span class="spacer"></span>
-    <button id="btn-screen" type="button">Экран</button>
-    <button id="btn-restart" type="button">Перезапустить</button>
+    <!-- Session tabs: one tap to switch. The list button opens the full session manager. -->
+    <div id="rail">
+      <button id="btn-sessions" type="button" class="rail-btn" aria-label="Все сессии"><svg class="ico"><use href="#i-list"/></svg></button>
+      <div id="tabs" role="tablist" aria-label="Сессии"></div>
+      <button id="btn-new" type="button" class="rail-btn" aria-label="Новая сессия"><svg class="ico"><use href="#i-plus"/></svg></button>
+      <button id="btn-menu" type="button" class="rail-btn" aria-label="Меню"><svg class="ico"><use href="#i-more"/></svg></button>
+    </div>
+    <!-- Instrument strip: what the current session and the laptop are doing -->
+    <div id="strip">
+      <span id="dot" class="dot off"></span>
+      <span class="ctx"><span id="sess-title">Сессии</span><span id="pulse-text" class="pulse"></span></span>
+      <span class="spacer"></span>
+      <button id="scr-pill" type="button" class="chip low" hidden aria-label="Состояние экрана"><span class="k">ЭКРАН</span><span id="scr-text"></span></button>
+      <button id="btn-machine" type="button" class="chip" hidden aria-label="Состояние ноутбука"><svg class="ico sm" id="bat-ico"><use href="#i-battery"/></svg><span id="bat-text"></span></button>
+      <button id="btn-screen" type="button" class="rail-btn sm" aria-label="Экран ноутбука"><svg class="ico"><use href="#i-monitor"/></svg></button>
+    </div>
   </header>
+
+  <div id="banner" hidden></div>
+
   <main id="term"></main>
+
+  <div id="compose" hidden>
+    <textarea id="compose-text" rows="2" placeholder="Продиктуйте или напишите. Текст можно поправить перед отправкой." autocapitalize="sentences"></textarea>
+    <div id="compose-bar">
+      <button id="voice-toggle" type="button" class="mic" aria-label="Диктовать"><svg class="ico"><use href="#i-mic"/></svg></button>
+      <select id="voice-lang" aria-label="Язык речи"><option value="ru-RU">RU</option><option value="en-US">EN</option></select>
+      <span class="spacer"></span>
+      <button id="compose-paste" type="button">Вставить</button>
+      <button id="compose-send" type="button" class="primary"><svg class="ico sm"><use href="#i-enter"/></svg>Отправить</button>
+      <button id="compose-close" type="button" class="rail-btn" aria-label="Закрыть"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <p id="compose-hint">Речь распознаёт браузер (аудио обрабатывает сервис Google). Ничего не отправляется само.</p>
+  </div>
+
   <nav id="keys" aria-label="Клавиши">
-    <button type="button" data-seq="scroll-up" aria-label="Прокрутка вверх">⇞</button>
-    <button type="button" data-seq="scroll-down" aria-label="Прокрутка вниз">⇟</button>
-    <button type="button" data-seq="scroll-end" aria-label="В конец">⤓</button>
-    <button type="button" data-seq="esc">Esc</button>
-    <button type="button" data-seq="tab">Tab</button>
-    <button type="button" id="key-ctrl" data-seq="ctrl">Ctrl</button>
-    <button type="button" data-seq="c-c">^C</button>
-    <button type="button" data-seq="c-d">^D</button>
-    <button type="button" data-seq="up">↑</button>
-    <button type="button" data-seq="down">↓</button>
-    <button type="button" data-seq="left">←</button>
-    <button type="button" data-seq="right">→</button>
-    <button type="button" data-seq="enter">Enter</button>
-    <button type="button" data-seq="|">|</button>
-    <button type="button" data-seq="/">/</button>
-    <button type="button" data-seq="~">~</button>
+    <div class="kgroup tools">
+      <button type="button" class="accent" data-seq="voice" aria-label="Голосовой ввод"><svg class="ico"><use href="#i-mic"/></svg></button>
+      <button type="button" class="accent" data-seq="reader" aria-label="Текст вывода"><svg class="ico"><use href="#i-doc"/></svg></button>
+    </div>
+    <div class="kgroup">
+      <button type="button" data-seq="scroll-up" aria-label="Страница вверх"><svg class="ico"><use href="#i-pgup"/></svg></button>
+      <button type="button" data-seq="scroll-down" aria-label="Страница вниз"><svg class="ico"><use href="#i-pgdn"/></svg></button>
+      <button type="button" data-seq="scroll-end" aria-label="В конец"><svg class="ico"><use href="#i-bottom"/></svg></button>
+    </div>
+    <div class="kgroup">
+      <button type="button" data-seq="esc">Esc</button>
+      <button type="button" data-seq="tab">Tab</button>
+      <button type="button" id="key-ctrl" data-seq="ctrl">Ctrl</button>
+      <button type="button" data-seq="c-c">^C</button>
+      <button type="button" data-seq="c-d">^D</button>
+    </div>
+    <div class="kgroup">
+      <button type="button" data-seq="left" aria-label="Влево"><svg class="ico"><use href="#i-left"/></svg></button>
+      <button type="button" data-seq="up" aria-label="Вверх"><svg class="ico"><use href="#i-up"/></svg></button>
+      <button type="button" data-seq="down" aria-label="Вниз"><svg class="ico"><use href="#i-down"/></svg></button>
+      <button type="button" data-seq="right" aria-label="Вправо"><svg class="ico"><use href="#i-right"/></svg></button>
+    </div>
+    <div class="kgroup">
+      <button type="button" class="enter" data-seq="enter" aria-label="Enter"><svg class="ico"><use href="#i-enter"/></svg></button>
+      <button type="button" data-seq="|">|</button>
+      <button type="button" data-seq="/">/</button>
+      <button type="button" data-seq="~">~</button>
+    </div>
   </nav>
+</div>
+
+<div id="sheet" hidden>
+  <div id="sheet-box" role="dialog" aria-modal="true">
+    <div id="sheet-head"><strong id="sheet-title"></strong><button id="sheet-close" type="button" class="rail-btn" aria-label="Закрыть"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <div id="sheet-body"></div>
+  </div>
+</div>
+
+<div id="reader" hidden>
+  <div id="rd-bar">
+    <div class="field"><svg class="ico sm"><use href="#i-search"/></svg><input id="rd-find" type="search" placeholder="Поиск" autocomplete="off"></div>
+    <button id="rd-prev" type="button" class="rail-btn" aria-label="Предыдущее"><svg class="ico"><use href="#i-up"/></svg></button>
+    <button id="rd-next" type="button" class="rail-btn" aria-label="Следующее"><svg class="ico"><use href="#i-down"/></svg></button>
+    <span id="rd-count"></span>
+    <span class="spacer"></span>
+    <button id="rd-close" type="button" class="rail-btn" aria-label="Закрыть"><svg class="ico"><use href="#i-x"/></svg></button>
+  </div>
+  <div id="rd-bar2">
+    <button id="rd-minus" type="button" aria-label="Мельче">A−</button>
+    <button id="rd-plus" type="button" aria-label="Крупнее">A+</button>
+    <label class="check"><input id="rd-wrap" type="checkbox" checked><span>перенос</span></label>
+    <span class="spacer"></span>
+    <button id="rd-copy-tail" type="button"><svg class="ico sm"><use href="#i-copy"/></svg>100 строк</button>
+    <button id="rd-copy-all" type="button"><svg class="ico sm"><use href="#i-copy"/></svg>Всё</button>
+  </div>
+  <pre id="rd-text"></pre>
+</div>
+
+<div id="lock" hidden>
+  <form id="lock-form" autocomplete="off">
+    <div class="wordmark"><svg class="ico" aria-hidden="true"><use href="#i-logo"/></svg><span>agent-remote</span></div>
+    <p class="sub">Введите PIN</p>
+    <p id="lock-msg" class="err" role="alert"></p>
+    <input id="lock-pin" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="••••••" maxlength="12">
+    <button type="submit" class="primary">Разблокировать</button>
+  </form>
 </div>
 
 <div id="shot" hidden>
   <div id="shot-bar">
-    <button id="shot-refresh" type="button">Обновить</button>
-    <label><input id="shot-auto" type="checkbox"> авто (5 с)</label>
+    <button id="shot-refresh" type="button"><svg class="ico sm"><use href="#i-refresh"/></svg>Обновить</button>
+    <select id="shot-display" hidden aria-label="Экран"></select>
+    <label class="check"><input id="shot-auto" type="checkbox"><span>авто, 5 с</span></label>
     <span class="spacer"></span>
-    <button id="shot-close" type="button">Закрыть</button>
+    <button id="shot-close" type="button" class="rail-btn" aria-label="Закрыть"><svg class="ico"><use href="#i-x"/></svg></button>
   </div>
   <div id="shot-view"><img id="shot-img" alt="Скриншот экрана"><p id="shot-msg"></p></div>
 </div>
+
+<input id="file-input" type="file" hidden accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,.txt">
 
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>

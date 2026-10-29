@@ -27,3 +27,14 @@ func Capture(ctx context.Context, display int, scale float64) ([]byte, error) {
 	}
 	return Encode(img, scale)
 }
+
+// Displays lists the active monitors in capture order (0 is the primary).
+func Displays() []Display {
+	n := screenshot.NumActiveDisplays()
+	out := make([]Display, 0, n)
+	for i := 0; i < n; i++ {
+		b := screenshot.GetDisplayBounds(i)
+		out = append(out, Display{Index: i, Width: b.Dx(), Height: b.Dy()})
+	}
+	return out
+}
